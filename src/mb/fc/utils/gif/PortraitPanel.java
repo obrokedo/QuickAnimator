@@ -50,12 +50,11 @@ public class PortraitPanel extends JPanel implements ActionListener {
 		actionLabel.setPreferredSize(new Dimension(0, 30));
 		actionLabel.setBackground(Color.DARK_GRAY);
 		actionLabel.setOpaque(true);
-
-		System.out.println("CONSTRUCTOR");
+		
 		this.add(actionLabel, BorderLayout.PAGE_START);
 		this.add(sidePanel, BorderLayout.LINE_START);
 		this.add(imagePanel, BorderLayout.CENTER);
-
+		
 		JPanel bottomPanel = new JPanel();
 		bottomPanel.setBackground(Color.DARK_GRAY);
 		leftButton = createActionButton("< --", "left", bottomPanel);
