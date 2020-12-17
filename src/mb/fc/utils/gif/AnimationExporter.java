@@ -26,55 +26,69 @@ import javax.swing.JOptionPane;
 import javax.swing.JSpinner;
 
 public class AnimationExporter {	
-	  public static void generateCombatantSpriteSheet(GifDecoder battleGifDecoder, GifDecoder walkGifDecoder, GifDecoder portraitDecoder, 
-			  boolean hasPortrait, String imageName, PortraitPanel portraitPanel, boolean promoted) throws IOException {
-	    String directory = "Unpromoted";
-	    String prefix = "Un";
-	    if (promoted) {
-	      directory = "Promoted";
-	      prefix = "Pro";
-	    } 
-	    Dimension fullImage = new Dimension(battleGifDecoder.getFrameCount() * (battleGifDecoder.getFrameSize()).width, 
-				(int) battleGifDecoder.getFrameSize().getHeight());
+	  private static void generateCombatantSpriteSheet(GifDecoder battleGifDecoder, GifDecoder walkGifDecoder, 
+			  	GifDecoder portraitDecoder,  boolean hasPortrait, String imageName, PortraitPanel portraitPanel, 
+			  		String directory) throws IOException {	    
+	    Dimension battleImageDims = null;
+	    if (battleGifDecoder != null)
+	    	battleImageDims = new Dimension(battleGifDecoder.getFrameCount() * (battleGifDecoder.getFrameSize()).width, 
+					(int) battleGifDecoder.getFrameSize().getHeight());
+	    else
+	    	battleImageDims = new Dimension(0, 0);
+	    
+	    int walkImageWidth = 0;
+	    if (walkGifDecoder != null)
+	    	walkImageWidth = walkGifDecoder.getFrameSize().width * 8;
+	    
 		BufferedImage bim = new BufferedImage(
-				fullImage.width + walkGifDecoder.getFrameSize().width * 8
+				battleImageDims.width + walkImageWidth
 						+ (hasPortrait ? portraitDecoder.getFrameSize().width * portraitDecoder.getFrameCount() : 0),
-				fullImage.height, BufferedImage.TYPE_INT_ARGB);
+				(battleImageDims.height != 0 ? battleImageDims.height : walkGifDecoder.getFrameSize().height), BufferedImage.TYPE_INT_ARGB);
 
 		ArrayList<String> spriteSheetContents = new ArrayList<>();
 		spriteSheetContents.add(
 				"<img name=\"" + imageName.substring(imageName.lastIndexOf(File.separator) + 1).replace(".gif", ".png")
-						+ "\" w=\"" + fullImage.width + "\" h=\"" + fullImage.height + "\">\n");
+						+ "\" w=\"" + bim.getWidth() + "\" h=\"" + bim.getHeight() + "\">\n");
 		spriteSheetContents.add("\t<definitions>\n");
 		spriteSheetContents.add("\t\t<dir name=\"/\">\n");
-		spriteSheetContents.add("\t\t\t<dir name=\"" + directory + "\">\n");
+		// Only add this directory if there is actually something to add. This will be 0 length for spells and npcs
+		if (directory.length() > 0) {
+			spriteSheetContents.add("\t\t\t<dir name=\"" + directory.substring(0, directory.length() - 1) + "\">\n");
+		}
 		Graphics g = bim.createGraphics();
-		for (int i = 0; i < battleGifDecoder.getFrameCount(); i++) {
-			spriteSheetContents
-					.add("\t\t\t\t<spr name=\"Frame" + i + "\" x=\"" + i * battleGifDecoder.getFrameSize().width
-							+ "\" y=\"0\" w=\"" + battleGifDecoder.getFrameSize().width + "\" h=\""
-							+ battleGifDecoder.getFrameSize().height + "\"/>\n");
-			g.drawImage(battleGifDecoder.getFrame(i), i * battleGifDecoder.getFrameSize().width, 0, null);
+		
+		
+		// Add battle animations
+		if (battleGifDecoder != null) {
+			for (int i = 0; i < battleGifDecoder.getFrameCount(); i++) {
+				spriteSheetContents
+						.add("\t\t\t\t<spr name=\"Frame" + i + "\" x=\"" + i * battleGifDecoder.getFrameSize().width
+								+ "\" y=\"0\" w=\"" + battleGifDecoder.getFrameSize().width + "\" h=\""
+								+ battleGifDecoder.getFrameSize().height + "\"/>\n");
+				g.drawImage(transformColorToTransparency(battleGifDecoder.getFrame(i), GifFrame.COMBAT_TRANS), i * battleGifDecoder.getFrameSize().width, 0, null);
+			}
+		}
+		
+		// Add walking animations
+		if (walkGifDecoder != null) {
+			for (int i = 0; i < 6; i++) {
+				g.drawImage(transformColorToTransparency(walkGifDecoder.getFrame(i), GifFrame.WALK_TRANS),
+						battleImageDims.width + i * walkGifDecoder.getFrameSize().width,
+						0, null);
+	
+				int walkX = battleImageDims.width + i * walkGifDecoder.getFrameSize().width;
+	
+				spriteSheetContents.add("\t\t\t\t<spr name=\"Walk" + i + "\" x=\"" + walkX + "\" y=\"0\" w=\""
+						+ walkGifDecoder.getFrameSize().width + "\" h=\"" + walkGifDecoder.getFrameSize().height
+						+ "\"/>\n");
+			}
 		}
 
-		for (int i = 0; i < 6; i++) {
-			g.drawImage(transformColorToTransparency(walkGifDecoder.getFrame(i), GifFrame.TRANS),
-					battleGifDecoder.getFrameCount() * battleGifDecoder.getFrameSize().width
-							+ i * walkGifDecoder.getFrameSize().width,
-					0, null);
-
-			int width = battleGifDecoder.getFrameCount() * battleGifDecoder.getFrameSize().width
-					+ i * walkGifDecoder.getFrameSize().width;
-
-			spriteSheetContents.add("\t\t\t\t<spr name=\"Walk" + i + "\" x=\"" + width + "\" y=\"0\" w=\""
-					+ walkGifDecoder.getFrameSize().width + "\" h=\"" + walkGifDecoder.getFrameSize().height
-					+ "\"/>\n");
-		}
-
+		// Add portrait animations
 		if (hasPortrait) {
 			for (int i = 0; i < portraitDecoder.getFrameCount(); i++) {
-				int placeX = battleGifDecoder.getFrameCount() * battleGifDecoder.getFrameSize().width
-						+ 8 * walkGifDecoder.getFrameSize().width + i * portraitDecoder.getFrameSize().width;
+				int placeX = battleImageDims.width
+						+ walkImageWidth + i * portraitDecoder.getFrameSize().width;
 				spriteSheetContents.add("\t\t\t\t<spr name=\"PortraitTop" + i + "\" x=\"" + placeX + "\" y=\"0\" w=\""
 						+ portraitDecoder.getFrameSize().width + "\" h=\"" + portraitPanel.getyPortraitSplit()
 						+ "\"/>\n");
@@ -86,7 +100,9 @@ public class AnimationExporter {
 			}
 		}
 
-		spriteSheetContents.add("\t\t\t</dir>\n");
+		// Only add this directory if there is actually something to add. This will be 0 length for spells and npcs
+		if (directory.length() > 0)
+			spriteSheetContents.add("\t\t\t</dir>\n");
 		spriteSheetContents.add("\t\t</dir>\n");
 		spriteSheetContents.add("\t</definitions>\n");
 		spriteSheetContents.add("</img>\n");
@@ -98,48 +114,22 @@ public class AnimationExporter {
 		Files.write(path, spriteSheetContents, StandardCharsets.UTF_8);
 		ImageIO.write(bim, "png", outputfile);
 	}
-
-	private static void generateCombatantAnimations(GifDecoder battleGifDecoder,
-			GifDecoder portraitDecoder, boolean hasPortrait, String imageName, PortraitPanel portraitPanel,
-			Hashtable<String, Integer> battleActions, JSpinner xOffsetSpinner, JSpinner yOffsetSpinner, boolean promoted)
-			throws IOException {
-		String directory = "Unpromoted";
-	    String prefix = "Un";
-	    if (promoted) {
-	      directory = "Promoted";
-	      prefix = "Pro";
-	    } 
-		ArrayList<String> animStrings = new ArrayList<String>();
-		animStrings.add("<animations spriteSheet=\""
+	  
+	private static void exportAnimations(ArrayList<String> animStrings, String imageName) throws IOException {
+		animStrings.add(0, "<animations spriteSheet=\""
 				+ imageName.substring(imageName.lastIndexOf(File.separator) + 1).replace(".gif", ".sprites")
 				+ "\" ver=\"1.2\">");
-		addWalkAnimations(animStrings, directory, prefix);
+		animStrings.add("</animations>");
 
-		HashSet<Integer> keyFrames = new HashSet<Integer>(battleActions.values());
-		for (Map.Entry<String, Integer> e : battleActions.entrySet()) {
-	      animStrings.add("<anim name=\"" + prefix + (String)e.getKey() + "\" loops=\"0\">");
-			int count = 0;
-			int index = e.getValue();
+		Path animPath = Paths.get(imageName.replace(".gif", ".anim"));
+		Files.write(animPath, animStrings, StandardCharsets.UTF_8);
+		JOptionPane.showMessageDialog(null, "Animation successfully written to " + animPath.toString());
+	}
 
-			while (true) {
-				animStrings.add("<cell index=\"" + count + "\" delay=\"" + battleGifDecoder.getDelay(index) + "\">");
-		        animStrings.add(
-		            "<spr name=\"/" + directory + "/Frame" + index + "\" x=\"" + ((Integer)xOffsetSpinner.getValue()).intValue() + 
-		            "\" y=\"" + ((Integer)yOffsetSpinner.getValue()).intValue() + "\" z=\"0\"/>");
-				animStrings.add("</cell>");
-
-				count++;
-				index++;
-
-				if (keyFrames.contains(index) || index == battleGifDecoder.getFrameCount())
-					break;
-			}
-
-			animStrings.add("</anim>");
-		}
-
+	private static void addPortraitAnimations(GifDecoder portraitDecoder, boolean hasPortrait,
+			PortraitPanel portraitPanel, String directory, String prefix, ArrayList<String> animStrings) {
 		if (hasPortrait) {
-			keyFrames = new HashSet<>(portraitPanel.getBattleActions().values());
+			HashSet<Integer> keyFrames = new HashSet<>(portraitPanel.getBattleActions().values());
 			for (Map.Entry<String, Integer> e : portraitPanel.getBattleActions().entrySet()) {
 				animStrings.add("<anim name=\"" + prefix + "Port" + (String)e.getKey() + "\" loops=\"0\">");
 				int count = 0;
@@ -149,14 +139,14 @@ public class AnimationExporter {
 					animStrings.add("<cell index=\"" + count + "\" delay=\"" + portraitDecoder.getDelay(index) + "\">");
 			          if (((String)e.getKey()).equalsIgnoreCase("Idle")) {
 			            animStrings.add(
-			                "<spr name=\"/" + directory + "/PortraitTop" + index + "\" x=\"0\" y=\"0\" z=\"0\"/>");
-			            animStrings.add("<spr name=\"/" + directory + "/PortraitBottom" + index + 
+			                "<spr name=\"/" + directory + "PortraitTop" + index + "\" x=\"0\" y=\"0\" z=\"0\"/>");
+			            animStrings.add("<spr name=\"/" + directory + "PortraitBottom" + index + 
 			                "\" x=\"0\" y=\"0\" z=\"0\"/>");
 			          } else if (((String)e.getKey()).equalsIgnoreCase("Blink")) {
 			            animStrings.add(
-			                "<spr name=\"/" + directory + "/PortraitTop" + index + "\" x=\"0\" y=\"0\" z=\"0\"/>");
+			                "<spr name=\"/" + directory + "PortraitTop" + index + "\" x=\"0\" y=\"0\" z=\"0\"/>");
 			          } else if (((String)e.getKey()).equalsIgnoreCase("Talk")) {
-			            animStrings.add("<spr name=\"/" + directory + "/PortraitBottom" + index + 
+			            animStrings.add("<spr name=\"/" + directory + "PortraitBottom" + index + 
 			                "\" x=\"0\" y=\"0\" z=\"0\"/>");
 			          }
 
@@ -172,24 +162,89 @@ public class AnimationExporter {
 				animStrings.add("</anim>");
 			}
 		}
+	}
 
-		animStrings.add("</animations>");
+	private static void addCombatAnimations(GifDecoder battleGifDecoder, Hashtable<String, Integer> battleActions,
+			JSpinner xOffsetSpinner, JSpinner yOffsetSpinner, String directory, String prefix,
+			ArrayList<String> animStrings) {
+		HashSet<Integer> keyFrames = new HashSet<Integer>(battleActions.values());
+		for (Map.Entry<String, Integer> e : battleActions.entrySet()) {
+	      animStrings.add("<anim name=\"" + prefix + (String)e.getKey() + "\" loops=\"0\">");
+			int count = 0;
+			int index = e.getValue();			
+			while (true) {
+				animStrings.add("<cell index=\"" + count + "\" delay=\"" + battleGifDecoder.getDelay(index) + "\">");
+		        animStrings.add(
+		            "<spr name=\"/" + directory + "Frame" + index + "\" x=\"" + ((Integer)xOffsetSpinner.getValue()).intValue() + 
+		            "\" y=\"" + ((Integer)yOffsetSpinner.getValue()).intValue() + "\" z=\"0\"/>");
+				animStrings.add("</cell>");
 
-		Path animPath = Paths.get(imageName.replace(".gif", ".anim"));
-		Files.write(animPath, animStrings, StandardCharsets.UTF_8);
-		JOptionPane.showMessageDialog(null, "Animation successfully written to " + animPath.toString());
+				count++;
+				index++;
+
+				if (keyFrames.contains(index) || index == battleGifDecoder.getFrameCount())
+					break;
+			}
+
+			animStrings.add("</anim>");
+		}
 	}
 	
 	public static void exportCombatant(GifDecoder battleGifDecoder, GifDecoder walkGifDecoder, 
 			GifDecoder portraitDecoder, boolean hasPortrait, String imageName, PortraitPanel portraitPanel, 
 			Hashtable<String, Integer> battleActions, JSpinner xOffsetSpinner, JSpinner yOffsetSpinner, boolean promoted)
 	{		 
+		String directory = "Unpromoted/";
+	    String prefix = "Un";
+	    if (promoted) {
+	      directory = "Promoted/";
+	      prefix = "Pro";
+	    } 
+	    
 		try {
-			generateCombatantSpriteSheet(battleGifDecoder, walkGifDecoder, portraitDecoder, hasPortrait, imageName, portraitPanel, promoted);
-			generateCombatantAnimations(battleGifDecoder, portraitDecoder, hasPortrait, imageName, 
-					portraitPanel, battleActions, xOffsetSpinner, yOffsetSpinner, promoted);
+			generateCombatantSpriteSheet(battleGifDecoder, walkGifDecoder, portraitDecoder, hasPortrait, 
+					imageName, portraitPanel, directory);
 			
+			ArrayList<String> animStrings = new ArrayList<String>();		
+			addWalkAnimations(animStrings, directory, prefix);
+			addCombatAnimations(battleGifDecoder, battleActions, xOffsetSpinner, yOffsetSpinner, directory, prefix,
+					animStrings);
+			addPortraitAnimations(portraitDecoder, hasPortrait, portraitPanel, directory, prefix, animStrings);
+			exportAnimations(animStrings, imageName);
 			
+		} catch (IOException e) {
+			e.printStackTrace();
+			JOptionPane.showMessageDialog(null, "An error occurred while trying to save the animation:"
+					+ e.getMessage(), "Error saving animation", JOptionPane.ERROR_MESSAGE);
+		}
+	}
+	
+	public static void exportSpell(GifDecoder battleGifDecoder,
+			String imageName, Hashtable<String, Integer> battleActions, JSpinner xOffsetSpinner, 
+				JSpinner yOffsetSpinner) {
+		try {
+			generateCombatantSpriteSheet(battleGifDecoder, null, null, false, 
+					imageName, null, "");
+			ArrayList<String> animStrings = new ArrayList<String>();
+			addCombatAnimations(battleGifDecoder, battleActions, xOffsetSpinner, yOffsetSpinner, "", "",
+					animStrings);
+			exportAnimations(animStrings, imageName);
+		} catch (IOException e) {
+			e.printStackTrace();
+			JOptionPane.showMessageDialog(null, "An error occurred while trying to save the animation:"
+					+ e.getMessage(), "Error saving animation", JOptionPane.ERROR_MESSAGE);
+		}
+	}
+	
+	public static void exportNPC(GifDecoder walkGifDecoder, String imageName, GifDecoder portraitDecoder, 
+			boolean hasPortrait, PortraitPanel portraitPanel) {
+		try {
+			generateCombatantSpriteSheet(null, walkGifDecoder, portraitDecoder, hasPortrait, 
+					imageName, portraitPanel, "");
+			ArrayList<String> animStrings = new ArrayList<String>();		
+			addWalkAnimations(animStrings, "", "");
+			addPortraitAnimations(portraitDecoder, hasPortrait, portraitPanel, "", "", animStrings);
+			exportAnimations(animStrings, imageName);
 		} catch (IOException e) {
 			e.printStackTrace();
 			JOptionPane.showMessageDialog(null, "An error occurred while trying to save the animation:"
@@ -200,34 +255,34 @@ public class AnimationExporter {
 	private static void addWalkAnimations(ArrayList<String> anims, String directory, String prefix) {
 	    anims.add("<anim name=\"" + prefix + "Up\" loops=\"0\">");
 	    anims.add("<cell index=\"0\" delay=\"1\">");
-	    anims.add("<spr name=\"/" + directory + "/Walk4\" x=\"0\" y=\"0\" z=\"0\"/>");
+	    anims.add("<spr name=\"/" + directory + "Walk4\" x=\"0\" y=\"0\" z=\"0\"/>");
 	    anims.add("</cell>");
 	    anims.add("<cell index=\"1\" delay=\"1\">");
-	    anims.add("<spr name=\"/" + directory + "/Walk5\" x=\"0\" y=\"0\" z=\"0\"/>");
+	    anims.add("<spr name=\"/" + directory + "Walk5\" x=\"0\" y=\"0\" z=\"0\"/>");
 	    anims.add("</cell>");
 	    anims.add("</anim>");
 	    anims.add("<anim name=\"" + prefix + "Down\" loops=\"0\">");
 	    anims.add("<cell index=\"0\" delay=\"1\">");
-	    anims.add("<spr name=\"/" + directory + "/Walk0\" x=\"0\" y=\"0\" z=\"0\"/>");
+	    anims.add("<spr name=\"/" + directory + "Walk0\" x=\"0\" y=\"0\" z=\"0\"/>");
 	    anims.add("</cell>");
 	    anims.add("<cell index=\"1\" delay=\"1\">");
-	    anims.add("<spr name=\"/" + directory + "/Walk1\" x=\"0\" y=\"0\" z=\"0\"/>");
+	    anims.add("<spr name=\"/" + directory + "Walk1\" x=\"0\" y=\"0\" z=\"0\"/>");
 	    anims.add("</cell>");
 	    anims.add("</anim>");
 	    anims.add("<anim name=\"" + prefix + "Left\" loops=\"0\">");
 	    anims.add("<cell index=\"0\" delay=\"1\">");
-	    anims.add("<spr name=\"/" + directory + "/Walk2\" x=\"0\" y=\"0\" z=\"0\" flipH=\"1\"/>");
+	    anims.add("<spr name=\"/" + directory + "Walk2\" x=\"0\" y=\"0\" z=\"0\" flipH=\"1\"/>");
 	    anims.add("</cell>");
 	    anims.add("<cell index=\"1\" delay=\"1\">");
-	    anims.add("<spr name=\"/" + directory + "/Walk3\" x=\"0\" y=\"0\" z=\"0\" flipH=\"1\"/>");
+	    anims.add("<spr name=\"/" + directory + "Walk3\" x=\"0\" y=\"0\" z=\"0\" flipH=\"1\"/>");
 	    anims.add("</cell>");
 	    anims.add("</anim>");
 	    anims.add("<anim name=\"" + prefix + "Right\" loops=\"0\">");
 	    anims.add("<cell index=\"0\" delay=\"1\">");
-	    anims.add("<spr name=\"/" + directory + "/Walk2\" x=\"0\" y=\"0\" z=\"0\"/>");
+	    anims.add("<spr name=\"/" + directory + "Walk2\" x=\"0\" y=\"0\" z=\"0\"/>");
 	    anims.add("</cell>");
 	    anims.add("<cell index=\"1\" delay=\"1\">");
-	    anims.add("<spr name=\"/" + directory + "/Walk3\" x=\"0\" y=\"0\" z=\"0\"/>");
+	    anims.add("<spr name=\"/" + directory + "Walk3\" x=\"0\" y=\"0\" z=\"0\"/>");
 	    anims.add("</cell>");
 	    anims.add("</anim>");
 	  }
@@ -318,7 +373,7 @@ public class AnimationExporter {
 		JOptionPane.showMessageDialog(null, "Animation successfully written to " + animPath.toString());
 	}
 	
-	public static void exportWeapon(GifDecoder weaponGifDecoder, String imageName)
+	private static void exportWeapon(GifDecoder weaponGifDecoder, String imageName)
 	{		 
 		try {
 			generateWeaponSpriteSheet(weaponGifDecoder, imageName);

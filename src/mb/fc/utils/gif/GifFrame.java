@@ -22,6 +22,9 @@ import javax.swing.JCheckBox;
 import javax.swing.JFileChooser;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
+import javax.swing.JMenu;
+import javax.swing.JMenuBar;
+import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JSpinner;
@@ -32,6 +35,12 @@ import javax.swing.event.ChangeListener;
 import javax.swing.filechooser.FileNameExtensionFilter;
 
 public class GifFrame extends JFrame implements ActionListener, ChangeListener {
+	private enum AnimationType {
+		SPELL,
+		NPC,
+		COMBATANT
+	}
+	
 	private static final long serialVersionUID = 1L;
 
 	private GifDecoder battleGifDecoder = new GifDecoder();
@@ -45,50 +54,71 @@ public class GifFrame extends JFrame implements ActionListener, ChangeListener {
 	private JButton playButton;
 	private int currentIndex = 0;
 	private JLabel topLabel;
-	public static final Color TRANS = new Color(95, 134, 134);
 	private JSpinner xOffsetSpinner;
 	private JSpinner yOffsetSpinner;
 	private JTabbedPane tabbedPane;
 	private PortraitPanel portraitPanel;
 	private boolean initialized = false;
 	private String imageName;
+	private JFileChooser fc = new JFileChooser();
+	private JMenuItem exportMI = null;
+	private JPanel combatantPanel, spellPanel;
+	private AnimationType type = null;
+	private JPanel backPanel = null;
+	public static Color COMBAT_TRANS;
+	public static Color WALK_TRANS;
 
   private JCheckBox promotedCheckbox;
   
 	public GifFrame(boolean embedded) {
-		super("Super Ugly Animator DEV 1.25");
+		super("Super Ugly Animator DEV 1.26");
 		this.setupUI(embedded);
 
 		// loadImages();
 	}
+	
+	private File loadGifFromFC(String description, boolean allowNone) {		
+		fc.setFileFilter(new FileNameExtensionFilter("Gif containing " + description, new String[] { "gif" }));
+		fc.setDialogTitle("Select " + description + " gif");
+		fc.setSelectedFile(null);
+		fc.showOpenDialog(this);		
+		File file = fc.getSelectedFile();
+		if ((!allowNone && file == null) || (file != null && !file.getName().endsWith(".gif"))) {
+			JOptionPane.showMessageDialog(this, "ERROR: Selected file must be a .gif");
+			return null;
+		}
+		
+		return file;
+	}
 
-	private void loadImages() {
+	private void loadImages(boolean battle, boolean walk, boolean portrait) {
 		battleGifDecoder = new GifDecoder();
 		walkGifDecoder = new GifDecoder();
 		portraitDecoder = new GifDecoder();
 
-		JFileChooser fc = new JFileChooser();
-		fc.setFileFilter(new FileNameExtensionFilter("Gif containing battle animations", new String[] { "gif" }));
-		fc.setDialogTitle("Select Battle Animation Gif");
-		fc.showOpenDialog(this);
-		File battleFile = fc.getSelectedFile();
-		if (battleFile == null || !battleFile.getName().endsWith(".gif")) {
-			JOptionPane.showMessageDialog(this, "ERROR: Selected file must be a .gif");
-			return;
+		this.initialized = false;
+		exportMI.setEnabled(false);
+		
+		File battleFile = null;
+		File walkFile = null;
+		File portraitFile = null;
+		backPanel.remove(combatantPanel);
+		backPanel.remove(spellPanel);
+		
+		if (battle) {
+			battleFile = loadGifFromFC("Battle Animations", false);
+			if (battleFile == null)
+				return;
 		}
-		fc.setFileFilter(new FileNameExtensionFilter("Gif containing walking animations", new String[] { "gif" }));
-		fc.setDialogTitle("Select Walking Animation Gif");
-		fc.showOpenDialog(this);
-		File walkFile = fc.getSelectedFile();
-		if (walkFile == null || !walkFile.getName().endsWith(".gif")) {
-			JOptionPane.showMessageDialog(this, "ERROR: Selected file must be a .gif");
-			return;
+		if (walk) {
+			walkFile = loadGifFromFC("Walking Animations", false);
+			if (walkFile == null)
+				return;
 		}
-    fc.setFileFilter(new FileNameExtensionFilter("Gif containing animated portrait", new String[] { "gif" }));
-		fc.setDialogTitle("Select Portrait Animation Gif");
-		int rc = fc.showOpenDialog(this);
-		File portraitFile = fc.getSelectedFile();
-		if (rc == JOptionPane.OK_OPTION && portraitFile != null && portraitFile.getName().endsWith(".gif")) {
+		if (portrait)
+			portraitFile = loadGifFromFC("Portrait Animations", true);
+
+		if (portraitFile != null) {
 			portraitDecoder.read(portraitFile.getPath());
 			portraitPanel.setPortraitDecoder(portraitDecoder);
 			tabbedPane.setEnabledAt(1, true);
@@ -97,24 +127,156 @@ public class GifFrame extends JFrame implements ActionListener, ChangeListener {
 			tabbedPane.setEnabledAt(1, false);
 			hasPortrait = false;
 		}
+		
 		battleActions.clear();
 		currentIndex = 0;
 		topLabel.setText(" Current Frame Animation: Unassigned");
-		loadBattleGif(battleFile.getPath());
-		loadWalkGif(walkFile.getPath());
-		this.initialized = true;
+		
+		if (walk)
+			loadWalkGif(walkFile.getPath());
+		
+		// If all we have is walk animations then just export directly
+		if (walk && !battle && portraitFile == null) {
+			tabbedPane.setEnabledAt(0, false);	
+			int rc = JOptionPane.showConfirmDialog(this, "This NPC has no portrait so there is nothing to modify.\nWould you like to export it now?", 
+					"Export NPC", JOptionPane.YES_NO_OPTION, JOptionPane.INFORMATION_MESSAGE, null);
+			if (rc == JOptionPane.YES_OPTION)
+				AnimationExporter.exportNPC(walkGifDecoder, imageName, portraitDecoder, false, portraitPanel);
+			
+			return;
+		} else {
+			tabbedPane.setEnabledAt(0, true);
+			if (battle) {
+				loadBattleGif(battleFile.getPath());
+				this.initialized = true;
+			}			
+			
+			if (type == AnimationType.COMBATANT) {
+				combatantPanel = setupCombatantPanel();
+				backPanel.add(combatantPanel, BorderLayout.LINE_START);
+			}
+			else if (type == AnimationType.SPELL) {
+				spellPanel = setupSpellPanel();
+				backPanel.add(spellPanel, BorderLayout.LINE_START);
+			}
+			exportMI.setEnabled(true);
+		}
+		
 		this.repaint();
+	}
+	
+	private JMenuItem addMenuItem(String desc, String cmd, JMenu fileMenu) {
+		JMenuItem mi = new JMenuItem(desc);
+		mi.setActionCommand(cmd);
+		mi.addActionListener(this);
+		fileMenu.add(mi);
+		return mi;
 	}
 
 	private void setupUI(boolean embedded) {
+		JMenuBar menuBar = new JMenuBar();		
+		
+		JMenu fileMenu = new JMenu("File");
+		addMenuItem("Import Combatant", "Import Combatant", fileMenu);
+		addMenuItem("Import Spell", "Import Spell", fileMenu);
+		addMenuItem("Import NPC", "Import NPC", fileMenu);
+		fileMenu.addSeparator();
+		addMenuItem("Load Combatant", "Load Combatant", fileMenu);
+		addMenuItem("Load Spell", "Load Spell", fileMenu);
+		addMenuItem("Load NPC", "Load NPC", fileMenu);
+		fileMenu.addSeparator();
+		exportMI = addMenuItem("Export", "Export", fileMenu);
+		exportMI.setEnabled(false);
+		menuBar.add(fileMenu);
+		this.setJMenuBar(menuBar);
+		
 		tabbedPane = new JTabbedPane();
-		JPanel backPanel = new JPanel(new BorderLayout());
+		backPanel = new JPanel(new BorderLayout());
+
+		topLabel = new JLabel(" Current Frame Animation: Unassigned");
+		topLabel.setForeground(Color.white);
+		topLabel.setPreferredSize(new Dimension(0, 30));
+		topLabel.setBackground(Color.DARK_GRAY);
+		topLabel.setOpaque(true);
+
+		xOffsetSpinner = new JSpinner();
+		xOffsetSpinner.setPreferredSize(new Dimension(200, 30));
+		xOffsetSpinner.setMaximumSize(new Dimension(150, 30));
+		xOffsetSpinner.addChangeListener(this);
+		xOffsetSpinner.setModel(new SpinnerNumberModel(0, -400, 400, 4));
+		xOffsetSpinner.setAlignmentX(Component.LEFT_ALIGNMENT);
+		yOffsetSpinner = new JSpinner();
+		yOffsetSpinner.setPreferredSize(new Dimension(200, 30));
+		yOffsetSpinner.setMaximumSize(new Dimension(150, 30));
+		yOffsetSpinner.addChangeListener(this);
+		yOffsetSpinner.setModel(new SpinnerNumberModel(0, -400, 400, 4));
+		yOffsetSpinner.setAlignmentX(Component.LEFT_ALIGNMENT);
+		
+		
+	    promotedCheckbox = new JCheckBox("Is promoted");
+		
+		JPanel bottomPanel = new JPanel();
+		bottomPanel.setBackground(Color.DARK_GRAY);
+		leftButton = createActionButton("< --", "left", bottomPanel);
+		rightButton = createActionButton("-- >", "right", bottomPanel);
+		leftButton.setEnabled(false);
+		rightButton.setEnabled(false);
+		
+	
+		// backPanel.add(sidePanel, BorderLayout.LINE_START);
+		backPanel.add(imagePanel, BorderLayout.CENTER);
+		backPanel.add(bottomPanel, BorderLayout.PAGE_END);
+		backPanel.add(topLabel, BorderLayout.PAGE_START);
+		tabbedPane.add(backPanel);
+		tabbedPane.setTitleAt(0, "Animation Definitions");
+
+		portraitPanel = new PortraitPanel();
+		tabbedPane.add(portraitPanel);
+		tabbedPane.setTitleAt(1, "Portrait Definitions");
+		tabbedPane.setEnabledAt(1, false);
+		this.setContentPane(tabbedPane);
+
+		spellPanel = setupSpellPanel();
+		combatantPanel = setupCombatantPanel();
+		
+		if (embedded)
+			this.setDefaultCloseOperation(JFrame.HIDE_ON_CLOSE);
+		else
+			this.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+		this.setMinimumSize(new Dimension(500, 675));
+		this.pack();
+		if (!embedded)
+			this.setVisible(true);
+	}
+	
+	private JPanel setupSpellPanel() {
 		JPanel sidePanel = new JPanel();
 		sidePanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 0, 0));
 		sidePanel.setPreferredSize(new Dimension(150, 0));
 		sidePanel.setLayout(new BoxLayout(sidePanel, BoxLayout.PAGE_AXIS));
-		createActionButton("Load New Gifs", "Load", sidePanel);
-	    sidePanel.add(Box.createRigidArea(new Dimension(0, 15)));
+		createActionButton("Set Level 1", "1", sidePanel);
+		sidePanel.add(Box.createRigidArea(new Dimension(0, 5)));
+		createActionButton("Set Level 2", "2", sidePanel);
+		sidePanel.add(Box.createRigidArea(new Dimension(0, 5)));
+		createActionButton("Set Level 3", "3", sidePanel);
+		sidePanel.add(Box.createRigidArea(new Dimension(0, 5)));
+		createActionButton("Set Level 4", "4", sidePanel);
+		sidePanel.add(Box.createRigidArea(new Dimension(0, 5)));
+	    createActionButton("Set Custom", "Custom", sidePanel);
+	    sidePanel.add(Box.createRigidArea(new Dimension(0, 5)));
+	    playButton = createActionButton("Play Action", "play");
+		playButton.setEnabled(false);
+	    sidePanel.add(playButton);
+		sidePanel.add(Box.createGlue());
+	
+		return sidePanel;
+	}
+	
+	private JPanel setupCombatantPanel() {
+		JPanel sidePanel = new JPanel();
+		sidePanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 0, 0));
+		sidePanel.setPreferredSize(new Dimension(150, 0));
+		sidePanel.setLayout(new BoxLayout(sidePanel, BoxLayout.PAGE_AXIS));
 		createActionButton("Set Stand", "Stand", sidePanel);
 		sidePanel.add(Box.createRigidArea(new Dimension(0, 5)));
 		createActionButton("Set Attack", "Attack", sidePanel);
@@ -133,82 +295,34 @@ public class GifFrame extends JFrame implements ActionListener, ChangeListener {
 		sidePanel.add(Box.createRigidArea(new Dimension(0, 5)));
 	    createActionButton("Set Custom", "Custom", sidePanel);
 	    sidePanel.add(Box.createRigidArea(new Dimension(0, 5)));
-		playButton = createActionButton("Play Action", "play", sidePanel);
+	    playButton = createActionButton("Play Action", "play");
+		playButton.setEnabled(false);
+	    sidePanel.add(playButton);	
 	    sidePanel.add(Box.createRigidArea(new Dimension(0, 15)));
-	    promotedCheckbox = new JCheckBox("Is promoted");
 	    sidePanel.add(promotedCheckbox);
-		sidePanel.add(Box.createRigidArea(new Dimension(0, 5)));
-		createActionButton("Export", "Export", sidePanel);
 		sidePanel.add(Box.createRigidArea(new Dimension(0, 5)));
 
 		sidePanel.add(new JLabel("X coordinate offset"));
-		xOffsetSpinner = new JSpinner();
-		xOffsetSpinner.setPreferredSize(new Dimension(200, 30));
-		xOffsetSpinner.setMaximumSize(new Dimension(150, 30));
-		xOffsetSpinner.addChangeListener(this);
-		xOffsetSpinner.setModel(new SpinnerNumberModel(0, -400, 400, 4));
-		xOffsetSpinner.setAlignmentX(Component.LEFT_ALIGNMENT);
 		sidePanel.add(xOffsetSpinner);
 		sidePanel.add(Box.createRigidArea(new Dimension(0, 5)));
-
 		sidePanel.add(new JLabel("Y coordinate offset"));
-		yOffsetSpinner = new JSpinner();
-		yOffsetSpinner.setPreferredSize(new Dimension(200, 30));
-		yOffsetSpinner.setMaximumSize(new Dimension(150, 30));
-		yOffsetSpinner.addChangeListener(this);
-		yOffsetSpinner.setModel(new SpinnerNumberModel(0, -400, 400, 4));
-		yOffsetSpinner.setAlignmentX(Component.LEFT_ALIGNMENT);
 		sidePanel.add(yOffsetSpinner);
 		sidePanel.add(Box.createGlue());
 		sidePanel.add(Box.createRigidArea(new Dimension(0, 5)));
-
-		topLabel = new JLabel(" Current Frame Animation: Unassigned");
-		topLabel.setForeground(Color.white);
-		topLabel.setPreferredSize(new Dimension(0, 30));
-		topLabel.setBackground(Color.DARK_GRAY);
-		topLabel.setOpaque(true);
-
-		JPanel bottomPanel = new JPanel();
-		bottomPanel.setBackground(Color.DARK_GRAY);
-		leftButton = createActionButton("< --", "left", bottomPanel);
-		rightButton = createActionButton("-- >", "right", bottomPanel);
-		leftButton.setEnabled(false);
-		rightButton.setEnabled(false);
-		playButton.setEnabled(false);
-
-		backPanel.add(sidePanel, BorderLayout.LINE_START);
-		backPanel.add(imagePanel, BorderLayout.CENTER);
-		backPanel.add(bottomPanel, BorderLayout.PAGE_END);
-		backPanel.add(topLabel, BorderLayout.PAGE_START);
-		tabbedPane.add(backPanel);
-		tabbedPane.setTitleAt(0, "Animation Definitions");
-
-		portraitPanel = new PortraitPanel();
-		tabbedPane.add(portraitPanel);
-		tabbedPane.setTitleAt(1, "Portrait Definitions");
-		tabbedPane.setEnabledAt(1, false);
-		this.setContentPane(tabbedPane);
-
-		if (embedded)
-			this.setDefaultCloseOperation(JFrame.HIDE_ON_CLOSE);
-		else
-			this.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-		this.setMinimumSize(new Dimension(500, 600));
-		this.pack();
-		if (!embedded)
-			this.setVisible(true);
+		return sidePanel;
 	}
 
 	public void loadBattleGif(String file) {
 		currentIndex = 0;
 		leftButton.setEnabled(false);
 		File fileToLoad = new File(file);
-		System.out.println(fileToLoad.exists());
 		if (currentIndex + 1 != battleGifDecoder.getFrameCount())
 			rightButton.setEnabled(true);
 		try {
 			battleGifDecoder.read(new FileInputStream(file));
+			this.COMBAT_TRANS = new Color(battleGifDecoder.getImage().getRGB(0, 0));
 			imageName = file;
+			
 		} catch (FileNotFoundException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
@@ -221,6 +335,9 @@ public class GifFrame extends JFrame implements ActionListener, ChangeListener {
 	public void loadWalkGif(String file) {
 		try {
 			walkGifDecoder.read(new FileInputStream(new File(file)));
+			WALK_TRANS = new Color(walkGifDecoder.getImage().getRGB(0, 0));
+			// This gets clobbered by battle image load for combatants
+			imageName = file;
 		} catch (FileNotFoundException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
@@ -254,7 +371,8 @@ public class GifFrame extends JFrame implements ActionListener, ChangeListener {
 				int halfHeight = currentImage.getHeight() / 2;
 
 				if (currentImage != null) {
-					g.drawImage(currentImage, drawX - halfWidth + (int) xOffsetSpinner.getValue(),
+					g.drawImage(AnimationExporter.transformColorToTransparency(currentImage, COMBAT_TRANS), 
+							drawX - halfWidth + (int) xOffsetSpinner.getValue(),
 							drawY - halfHeight + (int) yOffsetSpinner.getValue(), this);
 				}
 
@@ -276,13 +394,18 @@ public class GifFrame extends JFrame implements ActionListener, ChangeListener {
 			this.repaint();
 		}
 	}
-
-	private JButton createActionButton(String text, String command, JPanel container) {
+	
+	private JButton createActionButton(String text, String command) {
 		JButton b = new JButton(text);
 		b.addActionListener(this);
 		b.setActionCommand(command);
 		b.setAlignmentX(Component.LEFT_ALIGNMENT);
 		b.setMaximumSize(new Dimension(150, 20));
+		return b;
+	}
+
+	private JButton createActionButton(String text, String command, JPanel container) {
+		JButton b = createActionButton(text, command);
 		container.add(b);
 		return b;
 	}
@@ -324,11 +447,32 @@ public class GifFrame extends JFrame implements ActionListener, ChangeListener {
 			Thread t = new Thread(new PlayThread());
 			t.start();
 		} else if (cmd.startsWith("Export")) {
-	      AnimationExporter.exportCombatant(battleGifDecoder, walkGifDecoder, portraitDecoder, hasPortrait, 
-	          imageName, portraitPanel, battleActions, xOffsetSpinner, yOffsetSpinner, promotedCheckbox.isSelected());
-		} else if (cmd.startsWith("Load")) {
-			loadImages();
-	    } else if (cmd.equalsIgnoreCase("Custom")) {
+			switch (type) {
+			case COMBATANT:
+				AnimationExporter.exportCombatant(battleGifDecoder, walkGifDecoder, portraitDecoder, hasPortrait, 
+				          imageName, portraitPanel, battleActions, xOffsetSpinner, yOffsetSpinner, promotedCheckbox.isSelected());
+				break;
+			case NPC:
+				AnimationExporter.exportNPC(walkGifDecoder, imageName, portraitDecoder, hasPortrait, portraitPanel);
+				break;
+			case SPELL:
+				AnimationExporter.exportSpell(battleGifDecoder, imageName, battleActions, xOffsetSpinner, yOffsetSpinner);
+				break;
+			default:
+				break;
+				
+			}
+			
+		} else if (cmd.equalsIgnoreCase("Import Combatant")) {
+			type = AnimationType.COMBATANT;
+			loadImages(true, true, true);
+	    } else if (cmd.equalsIgnoreCase("Import NPC")) {
+	    	type = AnimationType.NPC;
+			loadImages(false, true, true);
+	    } else if (cmd.equalsIgnoreCase("Import Spell")) {
+	    	type = AnimationType.SPELL;
+			loadImages(true, false, false);
+	    }else if (cmd.equalsIgnoreCase("Custom")) {
 	      String animName = JOptionPane.showInputDialog(this, "Enter the name of the animation");
 	      if (animName != null) {
 	        battleActions.put(animName, Integer.valueOf(currentIndex));
